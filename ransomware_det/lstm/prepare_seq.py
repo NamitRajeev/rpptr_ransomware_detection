@@ -1,96 +1,47 @@
-import os
 import pandas as pd
 import numpy as np
+import os
+from sklearn.preprocessing import MinMaxScaler
+import joblib
 
-# ================= PATH SETUP =================
+INPUT_FILE = "data/processed/labeled_features.csv"
+OUTPUT_DIR = "data/processed"
+SEQ_LEN = 30
 
-# Project root: ransomware_det/
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Input: baseline RF dataset
-INPUT_CSV = os.path.join(BASE_DIR, "data", "labeled_features.csv")
+df = pd.read_csv(INPUT_FILE)
 
-# Output: LSTM-specific data
-SEQS_DIR = os.path.join(BASE_DIR, "lstm", "seqs")
-os.makedirs(SEQS_DIR, exist_ok=True)
+# 🔴 BENIGN ONLY
+df = df[df["label"] == 0].reset_index(drop=True)
 
-X_OUTPUT_PATH = os.path.join(SEQS_DIR, "X_sequences.npy")
-Y_OUTPUT_PATH = os.path.join(SEQS_DIR, "y_sequences.npy")
-
-# ================= CONFIG =================
-
-SEQUENCE_LENGTH = 10  # timesteps per sequence
-
-FEATURE_COLUMNS = [
-    "avg_cpu",
-    "max_cpu",
-    "avg_memory",
-    "total_disk_write",
-    "max_write_burst",
-    "process_lifetime"
+FEATURE_COLS = [
+    "cpu_mean",
+    "cpu_max",
+    "mem_mean",
+    "disk_write_sum",
+    "disk_write_max",
+    "process_count",
+    "active_writers",
+    "disk_write_rate"   # 🔴 NEW
 ]
 
-LABEL_COLUMN = "label"
-PROCESS_COLUMN = "process_name"
+X = df[FEATURE_COLS].values
 
-# ================= LOAD DATA =================
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
 
-print("[INFO] Loading labeled dataset...")
-if not os.path.exists(INPUT_CSV):
-    raise FileNotFoundError(f"Input file not found: {INPUT_CSV}")
-
-df = pd.read_csv(INPUT_CSV)
-print(f"[INFO] Rows loaded: {len(df)}")
-
-# ================= VALIDATION =================
-
-required_cols = FEATURE_COLUMNS + [LABEL_COLUMN, PROCESS_COLUMN]
-missing_cols = [c for c in required_cols if c not in df.columns]
-
-if missing_cols:
-    raise ValueError(f"Missing required columns: {missing_cols}")
-
-# ================= NORMALIZATION =================
-# (important for stable LSTM training)
-
-print("[INFO] Normalizing features...")
-df[FEATURE_COLUMNS] = (
-    df[FEATURE_COLUMNS] - df[FEATURE_COLUMNS].mean()
-) / df[FEATURE_COLUMNS].std()
-
-# ================= SEQUENCE GENERATION =================
-
-print("[INFO] Creating time-series sequences...")
-grouped = df.groupby(PROCESS_COLUMN)
+joblib.dump(scaler, os.path.join(OUTPUT_DIR, "scaler.pkl"))
 
 X_sequences = []
 y_sequences = []
 
-for process_name, group in grouped:
-    group = group.sort_index()  # preserve temporal order
+for i in range(len(X_scaled) - SEQ_LEN):
+    X_sequences.append(X_scaled[i:i+SEQ_LEN])
+    y_sequences.append(0)
 
-    features = group[FEATURE_COLUMNS].values
-    labels = group[LABEL_COLUMN].values
+np.save(os.path.join(OUTPUT_DIR, "X_sequences.npy"), np.array(X_sequences))
+np.save(os.path.join(OUTPUT_DIR, "y_sequences.npy"), np.array(y_sequences))
 
-    if len(features) < SEQUENCE_LENGTH:
-        continue
-
-    for i in range(len(features) - SEQUENCE_LENGTH + 1):
-        X_sequences.append(features[i:i + SEQUENCE_LENGTH])
-        y_sequences.append(labels[i + SEQUENCE_LENGTH - 1])
-
-X_sequences = np.array(X_sequences)
-y_sequences = np.array(y_sequences)
-
-# ================= SAVE OUTPUT =================
-
-np.save(X_OUTPUT_PATH, X_sequences)
-np.save(Y_OUTPUT_PATH, y_sequences)
-
-# ================= FINAL OUTPUT =================
-
-print("\n========== SUCCESS ==========")
-print("X shape:", X_sequences.shape)
-print("y shape:", y_sequences.shape)
-print("Saved to:", SEQS_DIR)
-print("=============================")
+print("[INFO] LSTM sequence preparation completed")
+print("X shape:", np.array(X_sequences).shape)
