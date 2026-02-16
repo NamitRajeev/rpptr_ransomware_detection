@@ -26,7 +26,7 @@ from lstm.anomaly_score import anomaly_score, is_anomalous
 SEQ_LEN = 30
 POLL_INTERVAL = 1.0
 CONFIRM_WINDOW = 5
-CONFIRM_COUNT = 3
+CONFIRM_COUNT = 2
 
 LOG_PATH = os.path.join(PROJECT_ROOT, "data", "live_process_log.csv")
 
@@ -50,8 +50,9 @@ rf_model = joblib.load(os.path.join(PROJECT_ROOT, "model", "rf_model.pkl"))
 lstm_model = load_model(os.path.join(PROJECT_ROOT, "lstm", "lstm_model.h5"), compile=False)
 scaler = joblib.load(os.path.join(PROJECT_ROOT, "data", "processed", "scaler.pkl"))
 
+print("[INFO] RF model loaded")
+print("[INFO] LSTM model loaded")
 print("[INFO] Threshold at runtime:", as_module.ANOMALY_THRESHOLD)
-print("[INFO] Anomaly file loaded from:", as_module.__file__)
 print("[INFO] Live detection engine started...\n")
 
 # -------------------------------------------------
@@ -102,14 +103,15 @@ while True:
 
             window_df = pd.DataFrame(sequence_buffer)
 
-            # -------------------------
-            # RANDOM FOREST
-            # -------------------------
-            rf_input = window_df[RF_FEATURE_ORDER].iloc[-1:]
-            rf_pred = rf_model.predict(rf_input)[0]
+            # =====================================================
+            # 🔵 FIXED RF INPUT (30-second summary instead of 1 row)
+            # =====================================================
+            rf_summary = window_df[RF_FEATURE_ORDER].mean().to_frame().T
+            rf_prob = rf_model.predict_proba(rf_summary)[0][1]
+            rf_pred = 1 if rf_prob >= 0.5 else 0
 
             # -------------------------
-            # LSTM
+            # LSTM (UNCHANGED)
             # -------------------------
             sequence = window_df[RF_FEATURE_ORDER].values
             sequence_scaled = scaler.transform(sequence)
@@ -132,7 +134,7 @@ while True:
 
             print(
                 f"[{timestamp}] "
-                f"RF:{rf_pred} | "
+                f"RF:{rf_pred} (p={rf_prob:.3f}) | "
                 f"LSTM:{recon_error:.6f} | "
                 f"Confirmed:{confirmed_anomaly} | "
                 f"{decision}"
