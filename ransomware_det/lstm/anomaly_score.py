@@ -1,19 +1,32 @@
+# lstm/anomaly_score.py
+
 import numpy as np
-from tensorflow.keras.models import load_model
 
-model = load_model("lstm/lstm_model.h5", compile=False)
-X = np.load("data/processed/X_sequences.npy")
+# -------------------------------------------------
+# Deployment-calibrated anomaly threshold
+# -------------------------------------------------
+MEAN_ERROR = 0.3861410603439466
+STD_ERROR = 0.004515529867134235
+ANOMALY_THRESHOLD = 0.409  # slightly relaxed (mean + ~5*std)
 
-X_pred = model.predict(X, verbose=0)
 
-errors = np.mean((X - X_pred) ** 2, axis=(1, 2))
+def anomaly_score(model, sequence):
+    """
+    Compute reconstruction error for a single sequence.
+    sequence shape must be (30, 8)
+    """
 
-mean = errors.mean()
-std = errors.std()
-threshold = mean + 3 * std
+    if sequence.ndim != 2:
+        raise ValueError(f"Expected (30, 8), got {sequence.shape}")
 
-print("Mean:", mean)
-print("Std:", std)
-print("Threshold:", threshold)
+    sequence = np.expand_dims(sequence, axis=0)
 
-np.save("data/processed/benign_recon_errors.npy", errors)
+    reconstructed = model.predict(sequence, verbose=0)
+
+    error = np.mean((sequence - reconstructed) ** 2)
+
+    return float(error)
+
+
+def is_anomalous(error):
+    return error > ANOMALY_THRESHOLD
