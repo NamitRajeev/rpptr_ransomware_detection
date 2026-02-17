@@ -24,13 +24,13 @@ SCALER_PATH = "data/processed/scaler.pkl"
 BENIGN_ERR_PATH = "data/processed/benign_errors.npy"
 
 # ----------------------------
-# LOAD MODELS & PARAMETERS
+# LOAD MODELS
 # ----------------------------
 rf_model = joblib.load(RF_MODEL_PATH)
 lstm_model = load_model(LSTM_MODEL_PATH, compile=False)
 scaler = joblib.load(SCALER_PATH)
 
-# Dynamically derive threshold
+# Derive LSTM threshold
 benign_errors = np.load(BENIGN_ERR_PATH)
 LSTM_THRESHOLD = benign_errors.mean() + 3 * benign_errors.std()
 
@@ -41,27 +41,23 @@ print(f"[INFO] LSTM anomaly threshold = {LSTM_THRESHOLD:.6f}")
 # HYBRID DECISION FUNCTION
 # ----------------------------
 def hybrid_decision(feature_window_df):
-    """
-    Parameters:
-        feature_window_df : pandas.DataFrame
-            Last SEQ_LEN rows of extracted features
 
-    Returns:
-        decision (str)
-        confidence_source (str)
-    """
-
-    # --------- Random Forest (Supervised) ----------
-    rf_pred = rf_model.predict(
+    # ---------------- RF ----------------
+    rf_probs = rf_model.predict_proba(
         feature_window_df[FEATURE_COLS]
-    )[-1]
+    )
 
-    if rf_pred == 1:
-        return "RANSOMWARE", "Random Forest (Supervised)"
+    rf_prob_last = rf_probs[-1][1]
+    rf_pred_last = 1 if rf_prob_last > 0.5 else 0
 
-    # --------- LSTM Anomaly Detection ----------
+    # ---------------- LSTM ----------------
     if len(feature_window_df) < SEQ_LEN:
-        return "INSUFFICIENT_DATA", "Waiting for sequence"
+        return {
+            "decision": "INSUFFICIENT_DATA",
+            "rf_prob": rf_prob_last,
+            "lstm_score": None,
+            "threshold": LSTM_THRESHOLD
+        }
 
     X = feature_window_df[FEATURE_COLS].values
     X_scaled = scaler.transform(X)
@@ -73,16 +69,23 @@ def hybrid_decision(feature_window_df):
     X_true = X_seq[:, -1, :]
     X_pred = lstm_model.predict(X_seq, verbose=0)
 
-    anomaly_score = np.mean((X_true - X_pred) ** 2)
+    lstm_score = np.mean((X_true - X_pred) ** 2)
 
-    if anomaly_score > LSTM_THRESHOLD:
-        return "SUSPICIOUS", "LSTM Anomaly Detector"
+    # ---------------- Decision Logic ----------------
+    if rf_pred_last == 1:
+        decision = "RANSOMWARE (RF)"
+    elif lstm_score > LSTM_THRESHOLD:
+        decision = "SUSPICIOUS (LSTM)"
+    else:
+        decision = "BENIGN"
 
-    return "BENIGN", "Normal behavior"
+    return {
+        "decision": decision,
+        "rf_prob": rf_prob_last,
+        "lstm_score": lstm_score,
+        "threshold": LSTM_THRESHOLD
+    }
 
-# ----------------------------
-# MODULE READY
 # ----------------------------
 if __name__ == "__main__":
-    print("[INFO] Hybrid module ready for integration")
-    print("Use hybrid_decision(feature_window_df) in monitoring pipeline")
+    print("[INFO] Hybrid module ready")
