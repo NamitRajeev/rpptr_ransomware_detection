@@ -6,23 +6,43 @@ import time
 import pandas as pd
 from datetime import datetime
 
+# -------------------------------------------------
+# Ensure project root is in Python path
+# -------------------------------------------------
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from response.hybrid_decision import hybrid_decision
+sys.path.append(os.path.dirname(__file__))
 
+from hybrid_decision import hybrid_decision
+
+
+# -------------------------------------------------
+# Configuration
+# -------------------------------------------------
 SEQ_LEN = 30
-SEQUENCE_DELAY = 1.0
+SEQUENCE_DELAY = 0.7   # smooth demo speed
 
+# -------------------------------------------------
+# Load processed feature data
+# -------------------------------------------------
 print("[INFO] Loading processed feature rows...")
 
 df = pd.read_csv("data/processed/labeled_features.csv")
 
+# 🔥 Shuffle dataset for realistic replay
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
 print(f"[INFO] Loaded {len(df)} feature rows")
 print("[INFO] Starting pseudo real-time hybrid detection...\n")
 
+# -------------------------------------------------
+# Replay loop
+# -------------------------------------------------
 buffer = []
+correct = 0
+total = 0
 
 for idx, row in df.iterrows():
 
@@ -38,21 +58,30 @@ for idx, row in df.iterrows():
 
     timestamp = datetime.now().strftime("%H:%M:%S")
 
+    # Get full detailed decision
     rf_prob, lstm_score, decision, source = hybrid_decision(window_df)
 
-    # SAFE formatting
-    rf_display = f"{rf_prob:.3f}" if isinstance(rf_prob, (int, float)) else str(rf_prob)
-    lstm_display = f"{lstm_score:.6f}" if isinstance(lstm_score, (int, float)) else str(lstm_score)
+
+    # Convert decision to numeric
+    predicted_label = 1 if "RANSOMWARE" in decision else 0
+    true_label = int(row["label"])
+
+    total += 1
+    if predicted_label == true_label:
+        correct += 1
+
+    accuracy = correct / total
 
     print(
         f"[{timestamp}] "
         f"Step {idx:04d} | "
-        f"RF Prob: {rf_display} | "
-        f"LSTM: {lstm_display} | "
+        #f"True: {true_label} | "
+        f"RF Prob: {rf_prob:.3f} | "
+        f"LSTM: {lstm_score:.4f} | "
         f"Decision: {decision:<18} | "
-        f"Triggered by: {source}"
+        f"Acc: {accuracy:.3f}"
     )
 
     time.sleep(SEQUENCE_DELAY)
 
-print("\n[INFO] Real-time replay completed.")
+print("\n[INFO] Replay completed.")
