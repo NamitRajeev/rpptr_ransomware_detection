@@ -4,25 +4,32 @@ import csv
 import os
 from datetime import datetime
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-LOG_PATH = os.path.join(DATA_DIR, "process_activity_log.csv")
+# ================= CONFIG =================
+MODE = "benign"   # change to "ransomware"/"benign" later
+SLEEP_INTERVAL = 2
+# ========================================
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data", MODE)
 os.makedirs(DATA_DIR, exist_ok=True)
 
-if not os.path.exists(LOG_PATH):
-    with open(LOG_PATH, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "timestamp",
-            "pid",
-            "process_name",
-            "cpu_percent",
-            "memory_percent",
-            "disk_write_delta"
-        ])
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+LOG_PATH = os.path.join(DATA_DIR, f"process_activity_{timestamp}.csv")
 
-print("[INFO] Process monitoring started")
+# Write header
+with open(LOG_PATH, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "timestamp",
+        "pid",
+        "process_name",
+        "cpu_percent",
+        "memory_percent",
+        "disk_write_delta"
+    ])
+
+print(f"[INFO] Process monitoring started ({MODE.upper()} mode)")
+print(f"[INFO] Logging to {LOG_PATH}")
 
 previous_disk_writes = {}
 
@@ -58,7 +65,9 @@ try:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-        time.sleep(2)
+        time.sleep(SLEEP_INTERVAL)
 
 except KeyboardInterrupt:
     print("\n[INFO] Monitoring stopped by user")
+    print(f"[INFO] Data saved to {LOG_PATH}")
+
