@@ -1,0 +1,2 @@
+# This directory should contain your processed data files
+# Copy your labeled_features.csv, scaler.pkl, and benign_errors.npy here
